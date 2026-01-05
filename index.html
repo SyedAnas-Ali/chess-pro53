@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chess Pro</title>
+    <style>
+      :root {
+        --bg-color: #1a1c1e;
+        --panel-bg: #2d2f31;
+        --light-sq: #ebecd0;
+        --dark-sq: #779556;
+        --accent: #3b82f6;
+        --text-main: #f8fafc;
+        --selected: rgba(255, 255, 0, 0.5);
+        --highlight: rgba(0, 0, 0, 0.15);
+        --capture: rgba(239, 68, 68, 0.4);
+      }
+      body {
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background-color: var(--bg-color);
+        color: var(--text-main);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 40px 20px;
+        margin: 0;
+      }
+      .game-container {
+        display: flex;
+        gap: 30px;
+        background: var(--panel-bg);
+        padding: 24px;
+        border-radius: 12px;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.4);
+      }
+      .board {
+        display: grid;
+        grid-template-columns: repeat(8, 85px);
+        grid-template-rows: repeat(8, 85px);
+        border: 8px solid #3e4143;
+        user-select: none;
+      }
+      .square {
+        width: 85px;
+        height: 85px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        position: relative;
+      }
+      .piece-img {
+        height: 70px;
+        width: auto;
+        pointer-events: none;
+        z-index: 2;
+      }
+      .pawn-img {
+        height: 55px !important;
+      }
+      .light {
+        background: var(--light-sq);
+      }
+      .dark {
+        background: var(--dark-sq);
+      }
+      .square.selected {
+        background-color: var(--selected) !important;
+      }
+      .square.move-target::after {
+        content: "";
+        width: 20px;
+        height: 20px;
+        background: var(--highlight);
+        border-radius: 50%;
+      }
+      .square.capture::after {
+        content: "";
+        position: absolute;
+        width: 75px;
+        height: 75px;
+        border: 4px solid var(--capture);
+        border-radius: 50%;
+      }
+      .panel {
+        width: 300px;
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+      }
+      .info-card {
+        background: rgba(0, 0, 0, 0.2);
+        padding: 15px;
+        border-radius: 8px;
+        border-left: 4px solid var(--accent);
+      }
+      .status-msg {
+        color: #fbbf24;
+        font-weight: bold;
+        margin-top: 10px;
+        height: 20px;
+      }
+      .btns {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+      button {
+        background: #4a5568;
+        color: white;
+        border: none;
+        padding: 10px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 600;
+        transition: 0.2s;
+      }
+      button:hover {
+        background: #718096;
+      }
+      #restart {
+        grid-column: span 2;
+        background: #dc2626;
+      }
+      #restart:hover {
+        background: #ef4444;
+      }
+      .moves-container {
+        background: rgba(0, 0, 0, 0.3);
+        height: 250px;
+        overflow-y: auto;
+        border-radius: 8px;
+        padding: 10px;
+        font-family: monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Chess Pro</h1>
+    <div class="game-container">
+      <div class="board" id="board"></div>
+      <div class="panel">
+        <div class="info-card">
+          <div>Turn: <b id="turn">White</b></div>
+          <div id="status" class="status-msg"></div>
+        </div>
+        <div class="btns">
+          <button id="restart">Restart Game</button>
+          <button id="undo">Undo</button>
+          <button id="flip">Flip Board</button>
+        </div>
+        <div class="moves-container" id="moves"></div>
+      </div>
+    </div>
+
+    <script>
+      const boardEl = document.getElementById("board"),
+        turnEl = document.getElementById("turn"),
+        movesEl = document.getElementById("moves"),
+        statusEl = document.getElementById("status"),
+        restartBtn = document.getElementById("restart"),
+        undoBtn = document.getElementById("undo"),
+        flipBtn = document.getElementById("flip");
+
+      const PIECES_SRC = {
+        P: "./Pieces/White Pawn.png",
+        R: "./Pieces/White Rook.png",
+        N: "./Pieces/White Knight.png",
+        B: "./Pieces/White Bishop.png",
+        Q: "./Pieces/White Queen.png",
+        K: "./Pieces/White King.png",
+        p: "./Pieces/Black Pawn.png",
+        r: "./Pieces/Black Rook.png",
+        n: "./Pieces/Black Knight.png",
+        b: "./Pieces/Black Bishop.png",
+        q: "./Pieces/Black Queen.png",
+        k: "./Pieces/Black King.png",
+      };
+
+      let board = [],
+        selected = null,
+        legalTargets = [],
+        whiteToMove = true,
+        history = [],
+        flipped = false;
+
+      function cloneBoard(b) {
+        return b.map((row) => [...row]);
+      }
+
+      function initGame() {
+        board = [
+          ["r", "n", "b", "q", "k", "b", "n", "r"],
+          ["p", "p", "p", "p", "p", "p", "p", "p"],
+          ["", "", "", "", "", "", "", ""],
+          ["", "", "", "", "", "", "", ""],
+          ["", "", "", "", "", "", "", ""],
+          ["", "", "", "", "", "", "", ""],
+          ["P", "P", "P", "P", "P", "P", "P", "P"],
+          ["R", "N", "B", "Q", "K", "B", "N", "R"],
+        ];
+        whiteToMove = true;
+        history = [];
+        renderBoard();
+      }
+
+      function renderBoard() {
+        boardEl.innerHTML = "";
+        for (let r = 0; r < 8; r++) {
+          for (let c = 0; c < 8; c++) {
+            const sq = document.createElement("div");
+            sq.className = "square " + ((r + c) % 2 === 0 ? "light" : "dark");
+            if (flipped) sq.style.order = (7 - r) * 8 + (7 - c);
+            const piece = board[r][c];
+            if (piece) {
+              const img = document.createElement("img");
+              img.src = PIECES_SRC[piece];
+              img.className = "piece-img";
+              if (piece.toLowerCase() === "p") img.classList.add("pawn-img");
+              img.onerror = () => {
+                img.style.display = "none";
+                sq.textContent = piece;
+              };
+              sq.appendChild(img);
+            }
+            if (selected && selected.r === r && selected.c === c)
+              sq.classList.add("selected");
+            if (legalTargets.some((t) => t.r === r && t.c === c)) {
+              sq.classList.add(board[r][c] ? "capture" : "move-target");
+            }
+            sq.onclick = () => onSquareClick(r, c);
+            boardEl.appendChild(sq);
+          }
+        }
+        turnEl.textContent = whiteToMove ? "White" : "Black";
+      }
+
+      function onSquareClick(r, c) {
+        const piece = board[r][c];
+        const isW = piece && piece === piece.toUpperCase();
+        if (selected) {
+          const move = legalTargets.find((t) => t.r === r && t.c === c);
+          if (move) {
+            makeMove(selected, { r, c });
+            selected = null;
+            legalTargets = [];
+            renderBoard();
+            return;
+          }
+        }
+        if (piece && isW === whiteToMove) {
+          selected = { r, c };
+          legalTargets = getLegalMoves(board, r, c);
+        } else {
+          selected = null;
+          legalTargets = [];
+        }
+        renderBoard();
+      }
+
+      function makeMove(from, to) {
+        history.push({ board: cloneBoard(board), whiteToMove });
+        const movingPiece = board[from.r][from.c];
+        board[to.r][to.c] = movingPiece;
+        board[from.r][from.c] = "";
+        if (movingPiece.toLowerCase() === "p" && (to.r === 0 || to.r === 7)) {
+          board[to.r][to.c] =
+            movingPiece === movingPiece.toUpperCase() ? "Q" : "q";
+        }
+        whiteToMove = !whiteToMove;
+        const check = isKingInCheck(board, whiteToMove);
+        statusEl.textContent = check ? "CHECK!" : "";
+        const moveText = document.createElement("div");
+        moveText.textContent = `${
+          !whiteToMove ? "W" : "B"
+        }: ${String.fromCharCode(97 + from.c)}${
+          8 - from.r
+        } to ${String.fromCharCode(97 + to.c)}${8 - to.r}`;
+        movesEl.prepend(moveText);
+      }
+
+      function getLegalMoves(bd, r, c) {
+        const p = bd[r][c];
+        const isW = p === p.toUpperCase();
+        let moves = [];
+        const directions = {
+          n: [
+            [-2, -1],
+            [-2, 1],
+            [-1, -2],
+            [-1, 2],
+            [1, -2],
+            [1, 2],
+            [2, -1],
+            [2, 1],
+          ],
+          b: [
+            [-1, -1],
+            [-1, 1],
+            [1, -1],
+            [1, 1],
+          ],
+          r: [
+            [0, 1],
+            [0, -1],
+            [1, 0],
+            [-1, 0],
+          ],
+          q: [
+            [-1, -1],
+            [-1, 1],
+            [1, -1],
+            [1, 1],
+            [0, 1],
+            [0, -1],
+            [1, 0],
+            [-1, 0],
+          ],
+          k: [
+            [-1, -1],
+            [-1, 1],
+            [1, -1],
+            [1, 1],
+            [0, 1],
+            [0, -1],
+            [1, 0],
+            [-1, 0],
+          ],
+        };
+        const type = p.toLowerCase();
+        const f = isW ? -1 : 1;
+        if (type === "p") {
+          if (!bd[r + f]?.[c]) moves.push({ r: r + f, c });
+          if (
+            ((isW && r === 6) || (!isW && r === 1)) &&
+            !bd[r + f][c] &&
+            !bd[r + 2 * f][c]
+          )
+            moves.push({ r: r + 2 * f, c });
+          [
+            [-1, 1],
+            [1, 1],
+          ].forEach((side) => {
+            const nc = c + side[0];
+            const target = bd[r + f]?.[nc];
+            if (target && (target === target.toUpperCase()) !== isW)
+              moves.push({ r: r + f, c: nc });
+          });
+        } else if (directions[type]) {
+          directions[type].forEach((d) => {
+            let nr = r + d[0],
+              nc = c + d[1];
+            while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+              const target = bd[nr][nc];
+              if (!target) {
+                moves.push({ r: nr, c: nc });
+                if (type === "n" || type === "k") break;
+              } else {
+                if ((target === target.toUpperCase()) !== isW)
+                  moves.push({ r: nr, c: nc });
+                break;
+              }
+              nr += d[0];
+              nc += d[1];
+            }
+          });
+        }
+        return moves.filter((m) => {
+          const temp = cloneBoard(bd);
+          temp[m.r][m.c] = temp[r][c];
+          temp[r][c] = "";
+          return !isKingInCheck(temp, isW);
+        });
+      }
+
+      function isKingInCheck(bd, isWhiteKing) {
+        let kr, kc;
+        const kingChar = isWhiteKing ? "K" : "k";
+        for (let r = 0; r < 8; r++)
+          for (let c = 0; c < 8; c++)
+            if (bd[r][c] === kingChar) {
+              kr = r;
+              kc = c;
+            }
+        for (let r = 0; r < 8; r++) {
+          for (let c = 0; c < 8; c++) {
+            const piece = bd[r][c];
+            if (piece && (piece === piece.toUpperCase()) !== isWhiteKing) {
+              const moves = getPseudoMoves(bd, r, c);
+              if (moves.some((m) => m.r === kr && m.c === kc)) return true;
+            }
+          }
+        }
+        return false;
+      }
+
+      function getPseudoMoves(bd, r, c) {
+        const p = bd[r][c];
+        const isW = p === p.toUpperCase();
+        const moves = [];
+        const type = p.toLowerCase();
+        const dirs = {
+          n: [
+            [-2, -1],
+            [-2, 1],
+            [-1, -2],
+            [-1, 2],
+            [1, -2],
+            [1, 2],
+            [2, -1],
+            [2, 1],
+          ],
+          b: [
+            [-1, -1],
+            [-1, 1],
+            [1, -1],
+            [1, 1],
+          ],
+          r: [
+            [0, 1],
+            [0, -1],
+            [1, 0],
+            [-1, 0],
+          ],
+          q: [
+            [-1, -1],
+            [-1, 1],
+            [1, -1],
+            [1, 1],
+            [0, 1],
+            [0, -1],
+            [1, 0],
+            [-1, 0],
+          ],
+          k: [
+            [-1, -1],
+            [-1, 1],
+            [1, -1],
+            [1, 1],
+            [0, 1],
+            [0, -1],
+            [1, 0],
+            [-1, 0],
+          ],
+        };
+        if (type === "p") {
+          [
+            [-1, isW ? -1 : 1],
+            [1, isW ? -1 : 1],
+          ].forEach((d) => moves.push({ r: r + d[1], c: c + d[0] }));
+        } else if (dirs[type]) {
+          dirs[type].forEach((d) => {
+            let nr = r + d[0],
+              nc = c + d[1];
+            while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+              moves.push({ r: nr, c: nc });
+              if (bd[nr][nc] || type === "n" || type === "k") break;
+              nr += d[0];
+              nc += d[1];
+            }
+          });
+        }
+        return moves;
+      }
+
+      restartBtn.onclick = initGame;
+      undoBtn.onclick = () => {
+        if (history.length) {
+          const last = history.pop();
+          board = last.board;
+          whiteToMove = last.whiteToMove;
+          movesEl.removeChild(movesEl.firstChild);
+          renderBoard();
+        }
+      };
+      flipBtn.onclick = () => {
+        flipped = !flipped;
+        renderBoard();
+      };
+      initGame();
+    </script>
+  </body>
+</html>
